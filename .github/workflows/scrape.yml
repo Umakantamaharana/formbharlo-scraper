@@ -1,9 +1,9 @@
-name: Daily Job Scraper
+name: Daily Job Scraper & Broadcast
 
 on:
   schedule:
-    # Runs at 00:00 UTC every day
-    - cron: '0 0 * * *'
+    # Runs 3 times daily: 8:30 AM, 2:30 PM, and 7:30 PM IST (03:00, 09:00, 14:00 UTC)
+    - cron: '0 3,9,14 * * *'
   workflow_dispatch: # Allows manual trigger from the GitHub Actions UI
 
 jobs:
@@ -34,9 +34,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Run Scraper
+    - name: Run Scraper & Content Generator
       env:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || 'gemini-2.5-flash' }}
+        CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://career135.com' }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
       run: |
         python scraper.py
         
@@ -44,6 +49,6 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add latest_jobs.json
-        git commit -m "Auto-update latest jobs data [skip ci]" || exit 0
+        git add latest_jobs.json archives/ || true
+        git commit -m "Auto-update latest jobs and archives [skip ci]" || exit 0
         git push
