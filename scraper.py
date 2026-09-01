@@ -249,22 +249,38 @@ Output MUST be a valid JSON object matching this exact structure:
 }}
 """
     
-    raw_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    formatted_prompt = prompt.format(content=content[:12000])
+    raw_model = (os.getenv("GEMINI_MODEL") or "gemma-4-31B-it").strip()
+    
     candidate_models = [raw_model]
-    for fallback in ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']:
+    for fallback in ['gemma-4-31B-it', 'gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
             
     for m in candidate_models:
+        # 1. Try Interactions API (Google GenAI latest standard)
+        if hasattr(client, 'interactions'):
+            try:
+                interaction = client.interactions.create(
+                    model=m,
+                    input=formatted_prompt
+                )
+                output = getattr(interaction, 'output_text', getattr(interaction, 'text', None))
+                if output:
+                    return str(output)
+            except Exception as interaction_err:
+                print(f"Interactions API '{m}' notice: {interaction_err}")
+
+        # 2. Fallback to Models API
         try:
             response = client.models.generate_content(
                 model=m,
-                contents=prompt.format(content=content[:12000]),
+                contents=formatted_prompt,
             )
-            if response and response.text:
+            if response and getattr(response, 'text', None):
                 return response.text
-        except Exception as err:
-            print(f"Model '{m}' error: {err}")
+        except Exception as model_err:
+            print(f"Models API '{m}' error: {model_err}")
             continue
 
     return None
