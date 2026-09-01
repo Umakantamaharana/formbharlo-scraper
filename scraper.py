@@ -386,14 +386,19 @@ def process_jobs(progress_callback=None):
         if progress_callback: progress_callback("Fetching latest job links...")
         links = fetch_job_links(driver)
         jobs = update_json(links)
-        
-        jobs_to_process = [job for job in jobs if job.get("status") == "UNPUBLISHED"]
+        # Sort UNPUBLISHED jobs by newest ID first and limit batch to avoid quota exhaustion
+        BATCH_SIZE = int(os.getenv("SCRAPE_BATCH_SIZE", "25"))
+        unpublished_jobs = [job for job in jobs if job.get("status") == "UNPUBLISHED"]
+        unpublished_jobs.sort(key=lambda x: int(x.get("id", 0)), reverse=True)
+        jobs_to_process = unpublished_jobs[:BATCH_SIZE]
         total_jobs = len(jobs_to_process)
         
         if total_jobs == 0:
             print("No new jobs to process.")
             if progress_callback: progress_callback("No new jobs to process.")
             return
+            
+        print(f"Found {len(unpublished_jobs)} pending jobs. Processing newest {total_jobs} in this batch.")
 
         api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
         if not api_key:
