@@ -285,35 +285,41 @@ Output MUST be a valid JSON object matching this exact structure:
 
     return None
 
+import html
+
 def broadcast_to_telegram(job):
     """Automatically broadcast new job notification to Telegram channel."""
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
+    bot_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    channel_id = (os.getenv("TELEGRAM_CHANNEL_ID") or "").strip()
     
     if not bot_token or not channel_id:
         return False
         
-    title = job.get("website_content", {}).get("title") or "New Govt Job Notification"
-    category = job.get("category", "Government")
-    org = job.get("organization", "")
-    vacancies = job.get("vacancies", "")
+    # Ensure public username starts with @ if not numeric
+    if not channel_id.startswith("@") and not channel_id.startswith("-100") and not channel_id.startswith("-"):
+        channel_id = f"@{channel_id}"
+        
+    title = html.escape(job.get("website_content", {}).get("title") or "New Govt Job Notification")
+    category = html.escape(job.get("category", "Government"))
+    org = html.escape(job.get("organization", ""))
+    vacancies = html.escape(str(job.get("vacancies", "")))
     job_id = job.get("id", "")
     career_url = f"{CAREER_PORTAL_BASE_URL}/job/{job_id}"
     direct_link = job.get("website_content", {}).get("actual_link", "")
-    action = job.get("website_content", {}).get("action", "Apply Now")
+    action = html.escape(job.get("website_content", {}).get("action", "Apply Now"))
 
     message_lines = [
-        f"🚨 *NEW NOTIFICATION 2026*",
-        f"*{title}*",
+        f"🚨 <b>NEW NOTIFICATION 2026</b>",
+        f"<b>{title}</b>",
         f"",
-        f"🏢 *Authority:* {org}" if org else "",
-        f"📂 *Category:* #{category.replace(' ', '_')}",
-        f"👥 *Vacancies:* {vacancies}" if vacancies else "",
+        f"🏢 <b>Authority:</b> {org}" if org else "",
+        f"📂 <b>Category:</b> #{category.replace(' ', '')}",
+        f"👥 <b>Vacancies:</b> {vacancies}" if vacancies else "",
         f"",
-        f"🔗 *Full Details:* [View on FormBharlo]({career_url})",
-        f"⚡ *Direct Portal:* [{action}]({direct_link})" if direct_link else "",
+        f"🔗 <b>Full Details:</b> <a href=\"{career_url}\">View on FormBharlo</a>",
+        f"⚡ <b>Direct Portal:</b> <a href=\"{direct_link}\">{action}</a>" if direct_link else "",
         f"",
-        f"📢 _Share with friends & job aspirants!_"
+        f"📢 <i>Share with friends &amp; job aspirants!</i>"
     ]
     message_text = "\n".join([line for line in message_lines if line])
     
@@ -322,7 +328,7 @@ def broadcast_to_telegram(job):
         payload = {
             "chat_id": channel_id,
             "text": message_text,
-            "parse_mode": "Markdown",
+            "parse_mode": "HTML",
             "disable_web_page_preview": False
         }
         res = requests.post(api_url, json=payload, timeout=8)
