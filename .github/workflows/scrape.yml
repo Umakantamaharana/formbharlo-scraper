@@ -37,7 +37,7 @@ jobs:
     - name: Run Scraper & Content Generator
       env:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-        GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || 'gemini-2.5-flash' }}
+        GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || 'gemma-4-31b-it' }}
         CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://formbharlo.in' }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
