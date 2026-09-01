@@ -250,10 +250,10 @@ Output MUST be a valid JSON object matching this exact structure:
 """
     
     formatted_prompt = prompt.format(content=content[:12000])
-    raw_model = (os.getenv("GEMINI_MODEL") or "gemma-4-31B-it").strip()
+    raw_model = (os.getenv("GEMINI_MODEL") or "gemma-4-31b-it").strip().lower()
     
     candidate_models = [raw_model]
-    for fallback in ['gemma-4-31B-it', 'gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']:
+    for fallback in ['gemma-4-31b-it', 'gemini-3.7-flash', 'gemini-3.6-flash']:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
             
