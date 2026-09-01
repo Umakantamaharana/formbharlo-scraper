@@ -21,7 +21,7 @@ JSON_PATH = "latest_jobs.json"
 ARCHIVE_DIR = "archives"
 BASE_URL = "https://www.freejobalert.com/"
 MAX_ACTIVE_JOBS = 500
-CAREER_PORTAL_BASE_URL = os.getenv("CAREER_PORTAL_URL", "https://career135.com")
+CAREER_PORTAL_BASE_URL = os.getenv("CAREER_PORTAL_URL", "https://formbharlo.in")
 
 def normalize_url(url):
     """Ensure external URLs have proper http/https protocol prefix."""
@@ -215,7 +215,7 @@ def generate_content_and_posts(content, client):
     if not content:
         return None
         
-    prompt = """You are a senior recruitment editor and social media growth specialist for Career135.
+    prompt = """You are a senior recruitment editor and social media growth specialist for FormBharlo.
 Extract rich, structured recruitment data and generate viral social media announcements from this raw notification text.
 
 Raw Job Description:
@@ -238,7 +238,7 @@ Output MUST be a valid JSON object matching this exact structure:
     "action": "Short action CTA (e.g. 'Apply Online', 'Check Result', 'Download Admit Card', 'View Answer Key')"
   }},
   "social_posts": {{
-    "x": "Twitter announcement (max 220 chars) with #Career135 hashtags and the official link.",
+    "x": "Twitter announcement (max 220 chars) with #FormBharlo hashtags and the official link.",
     "ln": "LinkedIn announcement (professional, bullet points).",
     "fb": "Facebook post with engaging tone and key dates.",
     "ig": "Instagram caption with hashtags and 'Link in bio' prompt.",
@@ -293,7 +293,7 @@ def broadcast_to_telegram(job):
         f"📂 *Category:* #{category.replace(' ', '_')}",
         f"👥 *Vacancies:* {vacancies}" if vacancies else "",
         f"",
-        f"🔗 *Full Details:* [View on Career135]({career_url})",
+        f"🔗 *Full Details:* [View on FormBharlo]({career_url})",
         f"⚡ *Direct Portal:* [{action}]({direct_link})" if direct_link else "",
         f"",
         f"📢 _Share with friends & job aspirants!_"
