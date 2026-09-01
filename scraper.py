@@ -249,24 +249,25 @@ Output MUST be a valid JSON object matching this exact structure:
 }}
 """
     
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt.format(content=content[:12000]),
-        )
-        return response.text
-    except Exception as e:
-        # Fallback to standard model if custom model errors
+    raw_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    candidate_models = [raw_model]
+    for fallback in ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']:
+        if fallback not in candidate_models:
+            candidate_models.append(fallback)
+            
+    for m in candidate_models:
         try:
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=m,
                 contents=prompt.format(content=content[:12000]),
             )
-            return response.text
-        except Exception as fallback_err:
-            print(f"Error generating AI content: {fallback_err}")
-            return None
+            if response and response.text:
+                return response.text
+        except Exception as err:
+            print(f"Model '{m}' error: {err}")
+            continue
+
+    return None
 
 def broadcast_to_telegram(job):
     """Automatically broadcast new job notification to Telegram channel."""
@@ -378,7 +379,7 @@ def process_jobs(progress_callback=None):
             if progress_callback: progress_callback("No new jobs to process.")
             return
 
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
         if not api_key:
             print("GOOGLE_API_KEY not found. Skipping AI content generation.")
             client = None

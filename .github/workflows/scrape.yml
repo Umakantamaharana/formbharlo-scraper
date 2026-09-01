@@ -38,7 +38,7 @@ jobs:
       env:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || 'gemini-2.5-flash' }}
-        CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://career135.com' }}
+        CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://formbharlo.in' }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
