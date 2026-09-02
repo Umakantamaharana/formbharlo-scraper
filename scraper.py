@@ -383,7 +383,37 @@ def update_job_link(job_id, new_link):
 def get_jobs_json():
     return load_jobs()
 
-def process_jobs(progress_callback=None):
+QUEUE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new_jobs_queue.json")
+
+def broadcast_pending_queue():
+    """Broadcast all newly generated jobs from queue to Telegram after deployment."""
+    if not os.path.exists(QUEUE_PATH):
+        print("No queued jobs to broadcast.")
+        return
+        
+    try:
+        with open(QUEUE_PATH, "r", encoding="utf-8") as f:
+            queue = json.load(f)
+    except Exception as e:
+        print(f"Error reading broadcast queue: {e}")
+        return
+
+    if not queue:
+        print("Broadcast queue is empty.")
+        return
+
+    print(f"Broadcasting {len(queue)} live, deployed jobs to Telegram...")
+    for job in queue:
+        broadcast_to_telegram(job)
+        time.sleep(1.5)
+
+    try:
+        if os.path.exists(QUEUE_PATH):
+            os.remove(QUEUE_PATH)
+    except Exception:
+        pass
+
+def process_jobs(broadcast_immediately=False, progress_callback=None):
     driver = setup_driver()
     RATE_LIMIT_DELAY = 2.0
     MAX_RETRIES = 3
@@ -414,6 +444,8 @@ def process_jobs(progress_callback=None):
             client = genai.Client(api_key=api_key)
 
         processed_any = False
+        newly_generated_jobs = []
+
         for i, job in enumerate(jobs_to_process):
             url = job["href"]
             job_id = job["id"]
@@ -484,8 +516,9 @@ def process_jobs(progress_callback=None):
                                 mutable_job["social_posts"] = generated_data.get("social_posts", {})
                                 mutable_job["status"] = "GENERATED"
                                 
-                                # Broadcast to Telegram if configured
-                                broadcast_to_telegram(mutable_job)
+                                newly_generated_jobs.append(mutable_job)
+                                if broadcast_immediately:
+                                    broadcast_to_telegram(mutable_job)
                                 break
                         
                         save_jobs(jobs)
@@ -497,7 +530,15 @@ def process_jobs(progress_callback=None):
             except Exception as e:
                 print(f"Error processing {url}: {e}")
         
-        if processed_any:
+        # Save newly generated jobs to queue file so they can be broadcasted after git push
+        if newly_generated_jobs and not broadcast_immediately:
+            try:
+                with open(QUEUE_PATH, "w", encoding="utf-8") as f:
+                    json.dump(newly_generated_jobs, f, indent=2)
+            except Exception as qe:
+                print(f"Warning: Failed to save broadcast queue: {qe}")
+        
+        if processed_any and broadcast_immediately:
             trigger_vercel_revalidation()
             
         if progress_callback: progress_callback("Processing complete.")
@@ -506,4 +547,10 @@ def process_jobs(progress_callback=None):
         driver.quit()
 
 if __name__ == "__main__":
-    process_jobs()
+    import sys
+    if "--broadcast-only" in sys.argv:
+        broadcast_pending_queue()
+    elif "--scrape-only" in sys.argv:
+        process_jobs(broadcast_immediately=False)
+    else:
+        process_jobs(broadcast_immediately=True)

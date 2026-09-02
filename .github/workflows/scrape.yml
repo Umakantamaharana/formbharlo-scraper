@@ -40,11 +40,8 @@ jobs:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || 'gemma-4-31b-it' }}
         CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://formbharlo.in' }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
       run: |
-        python -u scraper.py
+        python -u scraper.py --scrape-only
         
     - name: Commit and Push Changes
       run: |
@@ -53,3 +50,21 @@ jobs:
         git add latest_jobs.json archives/ || true
         git commit -m "Auto-update latest jobs and archives [skip ci]" || exit 0
         git push
+
+    - name: Trigger Vercel Revalidation
+      env:
+        VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+      run: |
+        if [ -n "$VERCEL_DEPLOY_HOOK_URL" ]; then
+          curl -s -X POST "$VERCEL_DEPLOY_HOOK_URL" || true
+        fi
+        sleep 5
+
+    - name: Broadcast Live Jobs to Telegram
+      env:
+        PYTHONUNBUFFERED: "1"
+        CAREER_PORTAL_URL: ${{ secrets.CAREER_PORTAL_URL || 'https://formbharlo.in' }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      run: |
+        python -u scraper.py --broadcast-only
