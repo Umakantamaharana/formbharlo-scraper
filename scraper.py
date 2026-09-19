@@ -287,42 +287,17 @@ Output MUST be a valid JSON object matching this exact structure:
 
 import html
 
-def broadcast_to_telegram(job):
-    """Automatically broadcast new job notification to Telegram channel."""
-    bot_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
-    channel_id = (os.getenv("TELEGRAM_CHANNEL_ID") or "").strip()
+def send_telegram_raw(message_text, bot_token=None, channel_id=None):
+    """Low-level helper to send an HTML-formatted message to Telegram."""
+    bot_token = bot_token or (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    channel_id = channel_id or (os.getenv("TELEGRAM_CHANNEL_ID") or "").strip()
     
     if not bot_token or not channel_id:
         return False
         
-    # Ensure public username starts with @ if not numeric
     if not channel_id.startswith("@") and not channel_id.startswith("-100") and not channel_id.startswith("-"):
         channel_id = f"@{channel_id}"
         
-    title = html.escape(job.get("website_content", {}).get("title") or "New Govt Job Notification")
-    category = html.escape(job.get("category", "Government"))
-    org = html.escape(job.get("organization", ""))
-    vacancies = html.escape(str(job.get("vacancies", "")))
-    job_id = job.get("id", "")
-    career_url = f"{CAREER_PORTAL_BASE_URL}/job/{job_id}"
-    direct_link = job.get("website_content", {}).get("actual_link", "")
-    action = html.escape(job.get("website_content", {}).get("action", "Apply Now"))
-
-    message_lines = [
-        f"🚨 <b>NEW NOTIFICATION 2026</b>",
-        f"<b>{title}</b>",
-        f"",
-        f"🏢 <b>Authority:</b> {org}" if org else "",
-        f"📂 <b>Category:</b> #{category.replace(' ', '')}",
-        f"👥 <b>Vacancies:</b> {vacancies}" if vacancies else "",
-        f"",
-        f"🔗 <b>Full Details:</b> <a href=\"{career_url}\">View on FormBharlo</a>",
-        f"⚡ <b>Direct Portal:</b> <a href=\"{direct_link}\">{action}</a>" if direct_link else "",
-        f"",
-        f"📢 <i>Share with friends &amp; job aspirants!</i>"
-    ]
-    message_text = "\n".join([line for line in message_lines if line])
-    
     try:
         api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
@@ -331,15 +306,104 @@ def broadcast_to_telegram(job):
             "parse_mode": "HTML",
             "disable_web_page_preview": False
         }
-        res = requests.post(api_url, json=payload, timeout=8)
+        res = requests.post(api_url, json=payload, timeout=10)
         if res.status_code == 200:
-            print(f"Broadcasted job {job_id} to Telegram successfully.")
             return True
         else:
             print(f"Telegram API warning: {res.text}")
     except Exception as e:
         print(f"Failed to post to Telegram: {e}")
     return False
+
+def broadcast_to_telegram(job):
+    """Broadcast a single detailed job alert card to Telegram."""
+    title = html.escape(job.get("website_content", {}).get("title") or "New Govt Job Notification")
+    category = html.escape(job.get("category", "Government"))
+    org = html.escape(job.get("organization", ""))
+    vacancies = html.escape(str(job.get("vacancies", "")))
+    qualification = html.escape(str(job.get("qualification", "")))
+    deadline = html.escape(str(job.get("deadline", "")))
+    job_id = job.get("id", "")
+    career_url = f"{CAREER_PORTAL_BASE_URL}/job/{job_id}"
+    direct_link = job.get("website_content", {}).get("actual_link", "")
+    action = html.escape(job.get("website_content", {}).get("action", "Apply Online"))
+
+    message_lines = [
+        "🚨 <b>NEW NOTIFICATION 2026</b>",
+        f"<b>{title}</b>",
+        "",
+        f"🏢 <b>Authority:</b> {org}" if org else "",
+        f"📂 <b>Category:</b> #{category.replace(' ', '')}",
+        f"👥 <b>Vacancies:</b> {vacancies}" if vacancies else "",
+        f"🎓 <b>Qualification:</b> {qualification}" if qualification else "",
+        f"⏰ <b>Last Date:</b> {deadline}" if deadline else "",
+        "",
+        f"🔗 <b>Full Details:</b> <a href=\"{career_url}\">View on FormBharlo</a>",
+        f"⚡ <b>Direct Portal:</b> <a href=\"{direct_link}\">{action}</a>" if direct_link else "",
+        "",
+        "📢 <i>Share with friends &amp; job aspirants!</i>"
+    ]
+    message_text = "\n".join([line for line in message_lines if line])
+    success = send_telegram_raw(message_text)
+    if success:
+        print(f"Broadcasted solo job {job_id} to Telegram.")
+    return success
+
+def broadcast_digest_to_telegram(jobs_batch, batch_index=1, total_batches=1):
+    """Broadcast a grouped digest of multiple jobs to avoid spamming subscribers."""
+    if not jobs_batch:
+        return False
+        
+    batch_indicator = f" (Part {batch_index}/{total_batches})" if total_batches > 1 else ""
+    header_lines = [
+        f"🚨 <b>LATEST GOVT JOB ALERTS 2026{batch_indicator}</b>",
+        f"⚡ <i>{len(jobs_batch)} New Recruitment Notifications Live</i>",
+        "━━━━━━━━━━━━━━━━━━━━"
+    ]
+    
+    number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    job_blocks = []
+    
+    for idx, job in enumerate(jobs_batch):
+        emoji = number_emojis[idx] if idx < len(number_emojis) else f"🔹"
+        title = html.escape(job.get("website_content", {}).get("title") or job.get("organization") or "Govt Job Opening")
+        org = html.escape(str(job.get("organization", "")).strip())
+        vacancies = html.escape(str(job.get("vacancies", "")).strip())
+        qualification = html.escape(str(job.get("qualification", "")).strip())
+        deadline = html.escape(str(job.get("deadline", "")).strip())
+        job_id = job.get("id", "")
+        career_url = f"{CAREER_PORTAL_BASE_URL}/job/{job_id}"
+        
+        info_parts = []
+        if org:
+            info_parts.append(f"🏢 {org}")
+        if vacancies and vacancies.lower() != "multiple":
+            info_parts.append(f"👥 {vacancies} Posts")
+        if qualification:
+            info_parts.append(f"🎓 {qualification}")
+        if deadline:
+            info_parts.append(f"⏰ {deadline}")
+            
+        info_str = " | ".join(info_parts)
+        
+        block = [
+            f"{emoji} <b>{title}</b>",
+            f"   {info_str}" if info_str else "",
+            f"   🔗 <a href=\"{career_url}\">View Eligibility &amp; Apply</a>"
+        ]
+        job_blocks.append("\n".join([b for b in block if b]))
+
+    footer_lines = [
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"🌐 <b>Explore All Jobs:</b> <a href=\"{CAREER_PORTAL_BASE_URL}\">FormBharlo.in</a>",
+        "📢 <i>Share this update with fellow aspirants!</i>"
+    ]
+
+    full_message = "\n".join(header_lines + ["\n\n".join(job_blocks)] + footer_lines)
+    success = send_telegram_raw(full_message)
+    if success:
+        print(f"Broadcasted digest batch {batch_index}/{total_batches} ({len(jobs_batch)} jobs) to Telegram.")
+    return success
 
 def trigger_vercel_revalidation():
     """Optional: Trigger Vercel Deploy Hook to rebuild static cache."""
@@ -386,7 +450,7 @@ def get_jobs_json():
 QUEUE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new_jobs_queue.json")
 
 def broadcast_pending_queue():
-    """Broadcast all newly generated jobs from queue to Telegram after deployment."""
+    """Broadcast newly generated jobs from queue to Telegram using smart batching."""
     if not os.path.exists(QUEUE_PATH):
         print("No queued jobs to broadcast.")
         return
@@ -402,10 +466,25 @@ def broadcast_pending_queue():
         print("Broadcast queue is empty.")
         return
 
-    print(f"Broadcasting {len(queue)} live, deployed jobs to Telegram...")
-    for job in queue:
-        broadcast_to_telegram(job)
-        time.sleep(1.5)
+    total_jobs = len(queue)
+    print(f"Processing Telegram broadcast queue with {total_jobs} jobs...")
+
+    # Strategy:
+    # 1. If 1-3 jobs: send individually
+    # 2. If > 3 jobs: group into clean digests of up to 6 jobs per message
+    if total_jobs <= 3:
+        for job in queue:
+            broadcast_to_telegram(job)
+            time.sleep(2.0)
+    else:
+        DIGEST_CHUNK_SIZE = 6
+        chunks = [queue[i:i + DIGEST_CHUNK_SIZE] for i in range(0, total_jobs, DIGEST_CHUNK_SIZE)]
+        total_chunks = len(chunks)
+        
+        for idx, chunk in enumerate(chunks, 1):
+            broadcast_digest_to_telegram(chunk, batch_index=idx, total_batches=total_chunks)
+            if idx < total_chunks:
+                time.sleep(3.0)
 
     try:
         if os.path.exists(QUEUE_PATH):
