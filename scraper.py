@@ -195,8 +195,104 @@ def update_json(new_links):
         
     return jobs
 
-def extract_content(html):
+IGNORED_LINK_DOMAINS = [
+    'freejobalert.com', 'user.freejobalert.com', 'google.com', 'play.google.com',
+    'reddit.com', 't.me', 'telegram.me', 'whatsapp.com', 'facebook.com',
+    'twitter.com', 'x.com', 'youtube.com', 'instagram.com', 'linkedin.com',
+    'pinterest.com', 'threads.net', 'apple.com', 'microsoft.com'
+]
+
+APPLY_KEYWORDS = re.compile(r'apply|register|registration|login|online\s*form|candidate|click\s*here|application|recruitment|portal', re.I)
+NOTIF_KEYWORDS = re.compile(r'notification|advertisement|advt|prospectus|notice|brochure|detailed|pdf', re.I)
+RESULT_KEYWORDS = re.compile(r'result|scorecard|merit|cutoff|answer\s*key|hall\s*ticket|admit', re.I)
+
+def extract_candidate_links(soup, base_url=''):
+    """Extract and unwrap all candidate external links from HTML."""
+    candidates = []
+    seen_urls = set()
+    
+    # Priority 1: Search inside entry-content or tables
+    content_area = soup.find("div", class_="entry-content") or soup.find("article") or soup.find("main") or soup
+    
+    for a in content_area.find_all('a', href=True):
+        href = a['href'].strip()
+        text = a.get_text(' ', strip=True)
+        if not href or href.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
+            continue
+            
+        full_url = urllib.parse.urljoin(base_url, href)
+        parsed = urllib.parse.urlparse(full_url)
+        domain = parsed.netloc.lower()
+        
+        if not domain or any(ign in domain for ign in IGNORED_LINK_DOMAINS):
+            continue
+            
+        # Clean tracking query parameters
+        clean_url = full_url.split('#')[0]
+        if clean_url not in seen_urls:
+            seen_urls.add(clean_url)
+            candidates.append({
+                'text': text[:90] if text else domain,
+                'url': clean_url
+            })
+    return candidates
+
+def deep_crawl_portal(portal_url, job_title=""):
+    """If candidate links are generic, crawl official portal 1 level deep for direct forms/PDFs."""
+    if not portal_url or not portal_url.startswith("http"):
+        return []
+        
+    discovered = []
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        res = requests.get(portal_url, headers=headers, timeout=5, allow_redirects=True)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                href = a['href'].strip()
+                text = a.get_text(' ', strip=True)
+                if not href or href.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
+                    continue
+                abs_url = urllib.parse.urljoin(res.url, href)
+                
+                # Check for high-intent application or PDF links
+                if abs_url.lower().endswith('.pdf') or 'pdf' in abs_url.lower():
+                    discovered.append({'text': f"Official PDF: {text[:60]}", 'url': abs_url})
+                elif APPLY_KEYWORDS.search(text) or APPLY_KEYWORDS.search(abs_url):
+                    discovered.append({'text': f"Online Portal: {text[:60]}", 'url': abs_url})
+                elif RESULT_KEYWORDS.search(text) or RESULT_KEYWORDS.search(abs_url):
+                    discovered.append({'text': f"Result/Admit Card: {text[:60]}", 'url': abs_url})
+                
+                if len(discovered) >= 6:
+                    break
+    except Exception as e:
+        print(f"Deep crawl notice for {portal_url}: {e}")
+        
+    return discovered
+
+def verify_link_health(url):
+    """Verify URL is valid and unwrap redirects."""
+    if not url:
+        return ""
+    trimmed = normalize_url(url)
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.head(trimmed, headers=headers, timeout=3.5, allow_redirects=True)
+        if resp.status_code < 400:
+            return resp.url
+        if resp.status_code in [403, 405]:
+            resp_get = requests.get(trimmed, headers=headers, timeout=3.5, stream=True, allow_redirects=True)
+            if resp_get.status_code < 400:
+                return resp_get.url
+    except Exception:
+        pass
+    return trimmed
+
+def extract_content_and_links(html, base_url=""):
     soup = BeautifulSoup(html, "html.parser")
+    
+    # First extract candidate links before decomposing elements
+    candidate_links = extract_candidate_links(soup, base_url)
     
     for tag in soup(["script", "style", "noscript", "iframe", "footer", "aside", "nav"]):
         tag.decompose()
@@ -205,21 +301,35 @@ def extract_content(html):
     if not main_content:
         main_content = soup.find("article") or soup.find("main")
 
+    text_content = ""
     if main_content:
         for ad in main_content.find_all(class_=re.compile(r"ad_div|advertisement|adsbygoogle", re.I)):
             ad.decompose()
-        return main_content.get_text(separator="\n", strip=True)
-    return ""
+        text_content = main_content.get_text(separator="\n", strip=True)
+        
+    return text_content, candidate_links
 
-def generate_content_and_posts(content, client):
+def generate_content_and_posts(content, candidate_links, client):
     if not content:
         return None
         
-    prompt = """You are a senior recruitment editor and social media growth specialist for FormBharlo.
-Extract rich, structured recruitment data and generate viral social media announcements from this raw notification text.
+    candidate_links_json = json.dumps(candidate_links[:12], indent=2)
+    
+    prompt = """You are a senior recruitment editor and data verification specialist for FormBharlo.
+Extract rich, structured recruitment data and identify the EXACT direct official application links from the candidate links discovered.
 
-Raw Job Description:
+Candidate Official Links Discovered by Crawler:
+{candidate_links_json}
+
+Raw Notification Text:
 {content}
+
+CRITICAL LINK SELECTION RULES:
+1. "apply_link": Pick the direct online application/registration portal URL (e.g. digialm, ibpsonline, upsconline, /register, /apply) from candidate links. If not available, leave empty string.
+2. "notification_pdf": Pick the direct official PDF advertisement URL (ending in .pdf or containing /upload/ /notice/) from candidate links.
+3. "official_website": The main official department homepage URL.
+4. "actual_link": The PRIMARY ACTION URL. Order of preference: apply_link > notification_pdf > official_website. Must start with https://.
+5. "action": Exact action phrase (e.g. 'Apply Online', 'Download Notification PDF', 'Check Result', 'Download Admit Card', 'View Answer Key').
 
 Output MUST be a valid JSON object matching this exact structure:
 {{
@@ -234,7 +344,10 @@ Output MUST be a valid JSON object matching this exact structure:
     "title": "Clear, informative job title with year (e.g., 'WBHRB Staff Nurse Grade II Scorecard 2026')",
     "summary": "2-sentence executive summary highlighting post name, key date, and authority.",
     "markdown_content": "Detailed, cleanly formatted Markdown with ## Headings, bullet lists (*), key highlights (**bold**), eligibility, and important dates. Do NOT include official links here.",
-    "actual_link": "Direct official website URL starting with https://. If not found, output empty string.",
+    "actual_link": "Direct verified application or notification URL.",
+    "apply_link": "Direct candidate registration/portal URL if found, else empty string.",
+    "notification_pdf": "Direct official advertisement PDF URL if found, else empty string.",
+    "official_website": "Official department homepage URL.",
     "action": "Short action CTA (e.g. 'Apply Online', 'Check Result', 'Download Admit Card', 'View Answer Key')"
   }},
   "social_posts": {{
@@ -249,7 +362,10 @@ Output MUST be a valid JSON object matching this exact structure:
 }}
 """
     
-    formatted_prompt = prompt.format(content=content[:12000])
+    formatted_prompt = prompt.format(
+        candidate_links_json=candidate_links_json,
+        content=content[:12000]
+    )
     raw_model = (os.getenv("GEMINI_MODEL") or "gemma-4-31b-it").strip().lower()
     
     candidate_models = [raw_model]
@@ -535,26 +651,40 @@ def process_jobs(broadcast_immediately=False, progress_callback=None):
             time.sleep(RATE_LIMIT_DELAY)
             
             try:
-                # Extract article body
+                # Extract article body and candidate links
                 content = None
+                candidate_links = []
                 try:
                     res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                     if res.status_code == 200:
-                        content = extract_content(res.text)
+                        content, candidate_links = extract_content_and_links(res.text, base_url=url)
                 except Exception:
                     pass
 
                 if not content:
                     driver.get(url)
                     time.sleep(2.5)
-                    content = extract_content(driver.page_source)
+                    content, candidate_links = extract_content_and_links(driver.page_source, base_url=url)
                 
+                # If only generic links found, run deep crawl on the first candidate official portal
+                if candidate_links:
+                    has_direct_form_or_pdf = any(
+                        l['url'].lower().endswith('.pdf') or 'apply' in l['url'].lower() or 'digialm' in l['url'].lower() or 'ibps' in l['url'].lower()
+                        for l in candidate_links
+                    )
+                    if not has_direct_form_or_pdf:
+                        for cl in candidate_links[:2]:
+                            extra_links = deep_crawl_portal(cl['url'], job_title="")
+                            if extra_links:
+                                candidate_links.extend(extra_links)
+                                break
+
                 if content:
                     generated_data = None
                     if client:
                         for attempt in range(MAX_RETRIES):
                             try:
-                                json_str = generate_content_and_posts(content, client)
+                                json_str = generate_content_and_posts(content, candidate_links, client)
                                 if json_str:
                                     clean_json = json_str.strip()
                                     if clean_json.startswith("```json"):
@@ -588,9 +718,29 @@ def process_jobs(broadcast_immediately=False, progress_callback=None):
                                 mutable_job["location"] = generated_data.get("location", "All India")
                                 mutable_job["salary"] = generated_data.get("salary", "")
                                 
-                                # Website content
+                                # Website content & verified direct links
                                 web_content = generated_data.get("website_content", {})
-                                web_content["actual_link"] = normalize_url(web_content.get("actual_link", ""))
+                                apply_link = normalize_url(web_content.get("apply_link", ""))
+                                notif_pdf = normalize_url(web_content.get("notification_pdf", ""))
+                                official_web = normalize_url(web_content.get("official_website", ""))
+                                actual_link = normalize_url(web_content.get("actual_link", ""))
+                                
+                                if not actual_link:
+                                    actual_link = apply_link or notif_pdf or official_web
+                                    
+                                # Verify link health and unwrap redirects
+                                if actual_link:
+                                    actual_link = verify_link_health(actual_link)
+                                if apply_link:
+                                    apply_link = verify_link_health(apply_link)
+                                if notif_pdf:
+                                    notif_pdf = verify_link_health(notif_pdf)
+                                    
+                                web_content["actual_link"] = actual_link
+                                web_content["apply_link"] = apply_link
+                                web_content["notification_pdf"] = notif_pdf
+                                web_content["official_website"] = official_web
+                                
                                 mutable_job["website_content"] = web_content
                                 mutable_job["social_posts"] = generated_data.get("social_posts", {})
                                 mutable_job["status"] = "GENERATED"
