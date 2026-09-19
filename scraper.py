@@ -270,18 +270,21 @@ def deep_crawl_portal(portal_url, job_title=""):
         
     return discovered
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 def verify_link_health(url):
-    """Verify URL is valid and unwrap redirects."""
+    """Verify URL is reachable and unwrap redirects quickly."""
     if not url:
         return ""
     trimmed = normalize_url(url)
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        resp = requests.head(trimmed, headers=headers, timeout=3.5, allow_redirects=True)
+        resp = requests.head(trimmed, headers=headers, timeout=2.0, allow_redirects=True, verify=False)
         if resp.status_code < 400:
             return resp.url
         if resp.status_code in [403, 405]:
-            resp_get = requests.get(trimmed, headers=headers, timeout=3.5, stream=True, allow_redirects=True)
+            resp_get = requests.get(trimmed, headers=headers, timeout=2.0, stream=True, allow_redirects=True, verify=False)
             if resp_get.status_code < 400:
                 return resp_get.url
     except Exception:
@@ -366,10 +369,10 @@ Output MUST be a valid JSON object matching this exact structure:
         candidate_links_json=candidate_links_json,
         content=content[:12000]
     )
-    raw_model = (os.getenv("GEMINI_MODEL") or "gemma-4-31b-it").strip().lower()
+    raw_model = (os.getenv("GEMINI_MODEL") or "gemini-3.6-flash").strip().lower()
     
     candidate_models = [raw_model]
-    for fallback in ['gemma-4-31b-it', 'gemini-3.7-flash', 'gemini-3.6-flash']:
+    for fallback in ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemma-4-31b-it']:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
             
@@ -695,7 +698,7 @@ def process_jobs(broadcast_immediately=False, progress_callback=None):
                                         clean_json = clean_json[:-3]
                                     clean_json = clean_json.strip()
                                     
-                                    generated_data = json.loads(clean_json)
+                                    generated_data = json.loads(clean_json, strict=False)
                                     break
                                 else:
                                     print(f"Attempt {attempt+1}: No response from AI model.")
